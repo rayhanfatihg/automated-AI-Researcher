@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Automated AI Researcher – Phase 1 Requirements
+# Framework : Smolagents (HuggingFace)
+# LLM       : Google Gemini (via LiteLLM)
+# Data      : arXiv Python package
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Agent Framework ───────────────────────────────────────────────────────────
+smolagents[litellm]          # Smolagents core + LiteLLM integration for Gemini
+
+# ── LLM Provider ─────────────────────────────────────────────────────────────
+litellm>=1.40.0              # Unified LLM interface (supports Gemini natively)
+google-generativeai>=0.7.0   # Official Google Generative AI SDK (Gemini)
+
+# ── Data Source ──────────────────────────────────────────────────────────────
+arxiv>=2.1.0                 # Official arXiv API wrapper
+
+# ── PDF Processing (for downloading & reading papers) ────────────────────────
+pymupdf>=1.24.0              # PDF text extraction (imported as `fitz`)
+pypdf>=4.0.0                 # Fallback PDF parser
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0         # Load .env files (API keys management)
+rich>=13.0.0                 # Beautiful terminal output & logging
+pydantic>=2.0.0              # Data validation for structured outputs
+requests>=2.31.0             # HTTP requests (general purpose)
+tenacity>=8.2.0              # Retry logic for API calls
+
+# ── Output & Formatting ───────────────────────────────────────────────────────
+markdown>=3.6                # Markdown generation for formatted reports
+jinja2>=3.1.0                # Templating engine for report formatting
