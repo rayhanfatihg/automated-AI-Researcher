@@ -1,0 +1,25 @@
+{
+  // ── Python environment ─────────────────────────────────────────────────────
+  // Point VS Code at the local virtual environment
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+  // Enable .env file injection into the integrated terminal
+  "python.terminal.useEnvFile": true,
+  "python.envFile": "${workspaceFolder}/.env",
+
+  // ── Editor ─────────────────────────────────────────────────────────────────
+  "editor.formatOnSave": true,
+  "editor.rulers": [88],
+
+  // ── File associations ──────────────────────────────────────────────────────
+  "files.associations": {
+    "*.env": "dotenv",
+    "*.env.example": "dotenv"
+  },
+
+  // ── Files to hide from the explorer (not from git) ─────────────────────────
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
+}

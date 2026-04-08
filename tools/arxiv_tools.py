@@ -4,12 +4,17 @@ tools/arxiv_tools.py – Smolagents @tool wrappers around the arxiv Python packa
 Each function is decorated with @tool so the Smolagents CodeAgent can call
 them autonomously. The docstrings act as the tool descriptions the LLM reads
 to decide when and how to call each tool.
+
+Phase 2 update:
+  - search_arxiv() now returns a JSON-serialisable list of paper dicts in
+    addition to the human-readable string, so downstream tools
+    (generate_bibtex, write_to_workspace) can consume structured data.
 """
 
 from __future__ import annotations
 
+import json
 import textwrap
-from pathlib import Path
 from typing import Optional
 
 import arxiv
@@ -19,12 +24,29 @@ from config import config
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helper
+# Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _truncate(text: str, max_chars: int = 800) -> str:
     """Truncate long text with an ellipsis."""
     return textwrap.shorten(text, width=max_chars, placeholder=" …")
+
+
+def _result_to_dict(result: arxiv.Result) -> dict:
+    """Convert an arxiv.Result to a plain dict for JSON serialisation."""
+    return {
+        "title": result.title,
+        "arxiv_id": result.get_short_id(),
+        "url": result.entry_id,
+        "pdf_url": result.pdf_url,
+        "authors": [a.name for a in result.authors],
+        "year": result.published.year,
+        "published": result.published.strftime("%Y-%m-%d"),
+        "abstract": result.summary,
+        "categories": result.categories,
+        "journal_ref": result.journal_ref or "",
+        "doi": result.doi or "",
+    }
 
 
 def _format_paper(result: arxiv.Result, include_abstract: bool = True) -> str:
@@ -34,12 +56,12 @@ def _format_paper(result: arxiv.Result, include_abstract: bool = True) -> str:
         authors += f" … (+{len(result.authors) - 5} more)"
 
     lines = [
-        f"**Title**   : {result.title}",
-        f"**ArXiv ID**: {result.get_short_id()}",
-        f"**Authors** : {authors}",
+        f"**Title**    : {result.title}",
+        f"**ArXiv ID** : {result.get_short_id()}",
+        f"**Authors**  : {authors}",
         f"**Published**: {result.published.strftime('%Y-%m-%d')}",
-        f"**URL**     : {result.entry_id}",
-        f"**PDF**     : {result.pdf_url}",
+        f"**URL**      : {result.entry_id}",
+        f"**PDF**      : {result.pdf_url}",
         f"**Categories**: {', '.join(result.categories)}",
     ]
     if include_abstract:
@@ -48,28 +70,24 @@ def _format_paper(result: arxiv.Result, include_abstract: bool = True) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tools
+# Phase 1 Tools (retained, search_arxiv_papers kept for backward compat.)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @tool
 def search_arxiv_papers(query: str, max_results: int = 5, sort_by: str = "relevance") -> str:
     """
-    Search arXiv for academic papers matching a query string.
+    Search arXiv for academic papers matching a query string (human-readable output).
 
-    Use this tool whenever the user asks to find, discover, or look up research
-    papers on a topic. Returns titles, IDs, authors, publication dates, and
-    truncated abstracts for each result.
+    Use this for quick exploration or when you only need to display results.
+    For structured downstream processing (BibTeX, LaTeX), use search_arxiv() instead.
 
     Args:
-        query: A natural-language or keyword search query (e.g. 'diffusion models
-               for image generation', 'transformer architecture survey 2024').
-        max_results: Maximum number of papers to return (1–20). Defaults to 5.
-        sort_by: Ranking criterion – one of 'relevance', 'lastUpdatedDate',
-                 or 'submittedDate'. Defaults to 'relevance'.
+        query: A natural-language or keyword search query.
+        max_results: Maximum number of papers to return (1-20). Defaults to 5.
+        sort_by: One of 'relevance', 'lastUpdatedDate', or 'submittedDate'.
 
     Returns:
-        A formatted multi-line string listing the found papers, or an error
-        message if the search fails.
+        A formatted multi-line string listing the found papers.
     """
     sort_map = {
         "relevance": arxiv.SortCriterion.Relevance,
@@ -81,11 +99,7 @@ def search_arxiv_papers(query: str, max_results: int = 5, sort_by: str = "releva
 
     try:
         client = arxiv.Client()
-        search = arxiv.Search(
-            query=query,
-            max_results=max_results,
-            sort_by=criterion,
-        )
+        search = arxiv.Search(query=query, max_results=max_results, sort_by=criterion)
         results = list(client.results(search))
 
         if not results:
@@ -106,18 +120,12 @@ def get_paper_details(arxiv_id: str) -> str:
     """
     Retrieve full details for a single arXiv paper by its ID.
 
-    Use this tool when you already know the arXiv ID of a paper (e.g. '2303.08774'
-    or 'https://arxiv.org/abs/2303.08774') and want to fetch the complete
-    metadata including the full abstract.
-
     Args:
         arxiv_id: The arXiv paper ID (short form like '2303.08774' or full URL).
 
     Returns:
-        A formatted string with full paper metadata and abstract, or an error
-        message if the paper is not found.
+        A formatted string with full paper metadata and abstract.
     """
-    # Strip URL prefix if given full link
     clean_id = arxiv_id.strip().split("/abs/")[-1].split("/pdf/")[-1].replace(".pdf", "")
 
     try:
@@ -150,14 +158,9 @@ def download_paper_pdf(arxiv_id: str, filename: Optional[str] = None) -> str:
     """
     Download the PDF of an arXiv paper to the local downloads directory.
 
-    Use this tool when the user wants to read, analyse, or extract text from
-    the full body of a paper (not just the abstract). After downloading, you
-    can use other tools to extract and summarise the text.
-
     Args:
         arxiv_id: The arXiv paper ID (e.g. '2303.08774').
-        filename:  Optional custom filename (without extension). Defaults to
-                   the arXiv ID.
+        filename: Optional custom filename (without extension).
 
     Returns:
         The absolute path to the downloaded PDF, or an error message.
@@ -189,13 +192,9 @@ def search_arxiv_by_author(author_name: str, max_results: int = 5) -> str:
     """
     Search arXiv for papers written by a specific author.
 
-    Use this tool when the user asks for papers by a particular researcher or
-    wants to explore an author's publication history.
-
     Args:
-        author_name: Full or partial author name (e.g. 'Yann LeCun',
-                     'Geoffrey Hinton').
-        max_results: Maximum number of papers to return (1–20). Defaults to 5.
+        author_name: Full or partial author name (e.g. 'Yann LeCun').
+        max_results: Maximum number of papers to return (1-20). Defaults to 5.
 
     Returns:
         A formatted list of papers by that author, or an error message.
@@ -223,3 +222,60 @@ def search_arxiv_by_author(author_name: str, max_results: int = 5) -> str:
 
     except Exception as exc:  # noqa: BLE001
         return f"[arXiv author search error] {exc}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2 – Tool 1: search_arxiv (structured JSON output)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@tool
+def search_arxiv(query: str, max_results: int = 5) -> str:
+    """
+    Search arXiv for recent academic papers and return structured JSON metadata.
+
+    Use this tool (instead of search_arxiv_papers) when the results will be
+    passed to other tools such as generate_bibtex or write_to_workspace.
+    The LLM can use the optimised query to target the most relevant papers.
+
+    Args:
+        query: A precise keyword or Boolean search query optimised for arXiv
+               (e.g. 'large language models survey', 'vision transformer 2024').
+        max_results: Number of papers to retrieve (1-20). Defaults to 5.
+
+    Returns:
+        A JSON string – a list of paper objects, each containing:
+          title, arxiv_id, url, pdf_url, authors (list), year, published,
+          abstract, categories (list), journal_ref, doi.
+        Returns an error string if the search fails.
+
+    Example output (abbreviated):
+        [
+          {
+            "title": "Attention Is All You Need",
+            "arxiv_id": "1706.03762",
+            "authors": ["Vaswani, Ashish", ...],
+            "year": 2017,
+            "abstract": "The dominant sequence ...",
+            ...
+          }
+        ]
+    """
+    max_results = max(1, min(int(max_results), 20))
+
+    try:
+        client = arxiv.Client()
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance,
+        )
+        results = list(client.results(search))
+
+        if not results:
+            return json.dumps([], indent=2)
+
+        papers = [_result_to_dict(r) for r in results]
+        return json.dumps(papers, indent=2, ensure_ascii=False)
+
+    except Exception as exc:  # noqa: BLE001
+        return f"[arXiv search error] {exc}"

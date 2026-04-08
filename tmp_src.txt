@@ -1,0 +1,59 @@
+    def __init__(
+        self,
+        tools: list[Tool],
+        model: Model,
+        prompt_templates: PromptTemplates | None = None,
+        instructions: str | None = None,
+        max_steps: int = 20,
+        add_base_tools: bool = False,
+        verbosity_level: LogLevel = LogLevel.INFO,
+        managed_agents: list | None = None,
+        step_callbacks: list[Callable] | dict[Type[MemoryStep], Callable | list[Callable]] | None = None,
+        planning_interval: int | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        provide_run_summary: bool = False,
+        final_answer_checks: list[Callable] | None = None,
+        return_full_result: bool = False,
+        logger: AgentLogger | None = None,
+    ):
+        self.agent_name = self.__class__.__name__
+        self.model = model
+        self.prompt_templates = prompt_templates or EMPTY_PROMPT_TEMPLATES
+        if prompt_templates is not None:
+            missing_keys = set(EMPTY_PROMPT_TEMPLATES.keys()) - set(prompt_templates.keys())
+            assert not missing_keys, (
+                f"Some prompt templates are missing from your custom `prompt_templates`: {missing_keys}"
+            )
+            for key, value in EMPTY_PROMPT_TEMPLATES.items():
+                if isinstance(value, dict):
+                    for subkey in value.keys():
+                        assert key in prompt_templates.keys() and (subkey in prompt_templates[key].keys()), (
+                            f"Some prompt templates are missing from your custom `prompt_templates`: {subkey} under {key}"
+                        )
+
+        self.max_steps = max_steps
+        self.step_number = 0
+        self.planning_interval = planning_interval
+        self.state: dict[str, Any] = {}
+        self.name = self._validate_name(name)
+        self.description = description
+        self.provide_run_summary = provide_run_summary
+        self.final_answer_checks = final_answer_checks if final_answer_checks is not None else []
+        self.return_full_result = return_full_result
+        self.instructions = instructions
+        self._setup_managed_agents(managed_agents)
+        self._setup_tools(tools, add_base_tools)
+        self._validate_tools_and_managed_agents(tools, managed_agents)
+
+        self.task: str | None = None
+        self.memory = AgentMemory(self.system_prompt)
+
+        if logger is None:
+            self.logger = AgentLogger(level=verbosity_level)
+        else:
+            self.logger = logger
+
+        self.monitor = Monitor(self.model, self.logger)
+        self._setup_step_callbacks(step_callbacks)
+        self.stream_outputs = False

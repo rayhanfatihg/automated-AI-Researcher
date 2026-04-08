@@ -6,7 +6,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Agent Framework ───────────────────────────────────────────────────────────
-smolagents[litellm]          # Smolagents core + LiteLLM integration for Gemini
+smolagents[litellm]==1.14.0  # Smolagents core + LiteLLM integration for Gemini (API: instructions=, LogLevel)
 
 # ── LLM Provider ─────────────────────────────────────────────────────────────
 litellm>=1.40.0              # Unified LLM interface (supports Gemini natively)

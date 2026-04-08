@@ -1,72 +1,100 @@
 """
 agent.py – Builds and returns the Smolagents CodeAgent powered by Google Gemini.
 
-The agent is given all arXiv tools and a system prompt that instructs it to
-act as an autonomous AI research assistant.
+Phase 1: arXiv search + exploration tools.
+Phase 2: structured search → BibTeX → LaTeX → write to workspace pipeline.
 """
 
 from __future__ import annotations
 
 import os
 
-from smolagents import CodeAgent, LiteLLMModel
+from smolagents import CodeAgent, LiteLLMModel, LogLevel
 
 from config import config
 from tools import (
+    # Phase 1
     download_paper_pdf,
     get_paper_details,
     search_arxiv_by_author,
     search_arxiv_papers,
+    # Phase 2
+    generate_bibtex,
+    search_arxiv,
+    write_to_workspace,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System prompt
+# Custom instructions
 # ─────────────────────────────────────────────────────────────────────────────
+# In smolagents >=1.14, `system_prompt` is a read-only property generated from
+# the agent's default prompt_templates.  Custom guidance is injected via the
+# `instructions` kwarg, which is appended to that default system prompt.
 
-SYSTEM_PROMPT = """
+AGENT_INSTRUCTIONS = """
 You are an expert AI Research Assistant specialising in finding, analysing, and
-summarising academic papers from arXiv.
+summarising academic papers from arXiv. You can also produce publication-ready
+LaTeX literature reviews with proper BibTeX citations.
 
 ## Your capabilities
 - Search arXiv for papers by topic, keyword, or author.
 - Retrieve full metadata and abstracts for specific papers.
 - Download PDFs for in-depth analysis.
+- Generate BibTeX citation entries from paper metadata.
+- Write a complete LaTeX literature review + BibTeX file to the local workspace.
 - Produce well-structured Markdown research reports.
 
 ## Behaviour guidelines
-1. **Be thorough**: When asked to research a topic, search for multiple relevant
-   papers before synthesising your findings.
-2. **Cite everything**: Always include arXiv IDs, titles, and URLs when
-   mentioning papers.
-3. **Format output as Markdown**: Use headings, bullet points, and code blocks
-   to make reports easy to read.
-4. **Summarise clearly**: Explain complex concepts in plain language with
-   concrete examples where possible.
-5. **Acknowledge uncertainty**: If a paper's content is not fully available,
-   say so explicitly rather than guessing.
+1. **Optimise your queries**: Before calling search_arxiv(), craft a precise
+   Boolean or keyword query to maximise relevance.
+2. **Be thorough**: Search for multiple relevant papers before synthesising.
+3. **Cite everything**: Always include arXiv IDs, titles, and URLs.
+4. **Format LaTeX correctly**: When writing main.tex, use proper LaTeX commands,
+   packages, and \\cite{key} references that match the BibTeX keys you generated.
+5. **Acknowledge uncertainty**: If information is not available, say so.
 
-## Output format for research reports
-Use the following structure when producing multi-paper summaries:
+## Standard literature-review workflow
+When asked to write a literature review or research report:
 
+1. Call search_arxiv(query, max_results) -> get JSON paper list.
+2. Call generate_bibtex(paper_metadata) -> get BibTeX string.
+3. Draft the LaTeX document (see template below).
+4. Call write_to_workspace(tex_content, bib_content) -> save files.
+
+## LaTeX document template
 ```
-# Research Report: <Topic>
+\\documentclass[12pt,a4paper]{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage[T1]{fontenc}
+\\usepackage{hyperref}
+\\usepackage{natbib}
+\\usepackage{geometry}
+\\geometry{margin=2.5cm}
 
-## Executive Summary
-<2–3 sentence overview>
+\\title{Literature Review: <Topic>}
+\\author{AI Research Assistant}
+\\date{\\today}
 
-## Key Papers
-### 1. <Paper Title>
-- **ID**: <arXiv ID>
-- **Authors**: …
-- **Published**: …
-- **Summary**: …
-- **Key contributions**: …
+\\begin{document}
+\\maketitle
+\\tableofcontents
 
-## Synthesis & Trends
+\\section{Introduction}
+<Overview of topic and review scope>
+
+\\section{Key Papers}
+\\subsection{<Paper 1 Title>}
+<Summary> \\cite{CiteKey1}
+
+\\section{Synthesis and Trends}
 <Cross-paper analysis>
 
-## Recommended Next Steps
-<What to read or explore next>
+\\section{Conclusion}
+<Summary and future directions>
+
+\\bibliographystyle{plainnat}
+\\bibliography{Referensi}
+\\end{document}
 ```
 """.strip()
 
@@ -100,15 +128,20 @@ def build_agent(verbose: bool = True) -> CodeAgent:
 
     agent = CodeAgent(
         tools=[
+            # Phase 1 – exploration
             search_arxiv_papers,
             get_paper_details,
             download_paper_pdf,
             search_arxiv_by_author,
+            # Phase 2 – structured pipeline
+            search_arxiv,
+            generate_bibtex,
+            write_to_workspace,
         ],
         model=model,
-        system_prompt=SYSTEM_PROMPT,
-        verbosity_level=1 if verbose else 0,
-        max_steps=15,        # Safety guard: stop after 15 reasoning steps
+        instructions=AGENT_INSTRUCTIONS,           # new API: appended to default system prompt
+        verbosity_level=LogLevel.INFO if verbose else LogLevel.ERROR,  # new API: LogLevel enum
+        max_steps=20,   # Phase 2 pipeline needs more steps (search->bibtex->write)
     )
 
     return agent
